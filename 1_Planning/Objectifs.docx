@@ -1,0 +1,28 @@
+# BigData University Quality - Project Objectives
+
+## Project Overview
+This project aims to analyze and improve university quality through big data analytics.
+
+## Main Objectives
+1. **Data Collection**: Gather comprehensive university quality metrics
+2. **Analysis**: Apply big data techniques to identify quality patterns
+3. **Visualization**: Create meaningful dashboards and reports
+4. **Recommendations**: Provide actionable insights for university improvement
+
+## Success Criteria
+- [ ] Complete data collection from multiple sources
+- [ ] Implement robust data processing pipeline
+- [ ] Deliver comprehensive quality analysis
+- [ ] Present findings in accessible format
+
+## Timeline
+- Planning Phase: Week 1-2
+- Data Collection: Week 3-5
+- Analysis Phase: Week 6-10
+- Report Writing: Week 11-12
+
+## Resources Required
+- Data sources and APIs
+- Computing resources for big data processing
+- Visualization tools
+- Academic literature and references
