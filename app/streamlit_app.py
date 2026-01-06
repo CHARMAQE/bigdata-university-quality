@@ -145,8 +145,9 @@ def compute_scores(df):
     coh = coherence_score(df)
     val = validity_score(df)
     dist = distribution_score(df)
-    schema = schema_integrity_score(df)
+    # schema = schema_integrity_score(df)  # REMOVED
     exact = val
+
     scores = {
         "Complétude": round(compl, 2),
         "Unicité": round(uniq, 2),
@@ -154,12 +155,19 @@ def compute_scores(df):
         "Validité": round(val, 2),
         "Exactitude": round(exact, 2),
         "Distribution": round(dist, 2),
-        "Intégrité Schéma": round(schema, 2),
+        # "Intégrité Schéma": round(schema, 2),  # REMOVED
     }
+
     weights = {
-        "Complétude": 0.20, "Validité": 0.20, "Exactitude": 0.15,
-        "Cohérence": 0.15, "Unicité": 0.05, "Distribution": 0.05, "Intégrité Schéma": 0.20,
+        "Complétude": 0.20,
+        "Validité": 0.20,
+        "Exactitude": 0.15,
+        "Cohérence": 0.15,
+        "Unicité": 0.05,
+        "Distribution": 0.05,
+        # "Intégrité Schéma": 0.20,  # REMOVED
     }
+
     total = sum(weights[k] * float(scores.get(k, 0.0)) for k in weights)
     return scores, round(total, 2), per_col_compl
 
@@ -278,8 +286,13 @@ def plot_heatmap_missing(df):
     if df.empty:
         return
 
+    # Exclude technical/flag columns from the missingness correlation heatmap
+    exclude_cols = {"note_out_of_range", "note_incoherent"}
+    cols_to_use = [c for c in df.columns if c not in exclude_cols]
+    df_use = df[cols_to_use].copy()
+
     # Limit size to keep UI responsive
-    df_small = df
+    df_small = df_use
     if len(df_small) > 20000:
         df_small = df_small.sample(n=20000, random_state=42)
 
@@ -291,14 +304,27 @@ def plot_heatmap_missing(df):
         return
 
     miss = df_small[cols].isna().astype(int)
-
-    # Corr on missing indicators
     corr = miss.corr()
 
-    fig, ax = plt.subplots(figsize=(10, 6))
-    sns.heatmap(corr, annot=False, cmap="coolwarm", ax=ax)
-    st.pyplot(fig)
+    # CHANGED: make the whole figure smaller/denser for Streamlit page
+    fig, ax = plt.subplots(figsize=(4.8, 3.0), dpi=180)
+    sns.heatmap(
+        corr,
+        annot=True,
+        fmt=".2f",
+        cmap="coolwarm",
+        ax=ax,
+        annot_kws={"size": 6},
+        cbar_kws={"shrink": 0.75}
+    )
 
+    # Tight layout reduces whitespace around the plot
+    fig.tight_layout(pad=0.3)
+
+    # CHANGED: do NOT expand to full width (reduces page space usage)
+    st.pyplot(fig, use_container_width=False)
+
+    plt.close(fig)
 def run_cleaning(cmd: str | None = None):
     if cmd:
         try:
@@ -359,7 +385,7 @@ def main():
 
         raw_count = len(df_raw) if not df_raw.empty else 0
         raw_compl = raw_scores.get("Complétude", 0)
-        raw_validity = (df_raw["row_status"] != "INVALID").mean() * 100 if "row_status" in df_raw.columns else 0
+        # raw_validity = (df_raw["row_status"] != "INVALID").mean() * 100 if "row_status" in df_raw.columns else 0  # REMOVED
 
         with tab_overview:
             st.subheader("🏁 Comparaison: Avant vs Après")
@@ -382,15 +408,15 @@ def main():
                 help="Moyenne pondérée de toutes les dimensions de qualité (Complétude, Unicité, etc.)."
             )
 
-            # Use the consistent metric now
-            current_validity = scores.get('Intégrité Schéma', 0)
-            # raw_validity is calculated in main as != INVALID, which matches new schema_integrity_score
+            # REPLACED KPI (was 'Intégrité Schéma')
+            current_dist = scores.get("Distribution", 0)
+            raw_dist = raw_scores.get("Distribution", 0) if raw_scores else 0
 
             c3.metric(
-                "Lignes Valides (Structure)",
-                f"{current_validity}%",
-                delta=f"{current_validity - raw_validity:.1f}% vs Brut" if raw_validity > 0 else None,
-                help="Pourcentage de lignes dont la structure est correcte (OK) ou a été réparée (FIXED). Exclut les lignes INVALIDES."
+                "Distribution (Sessions)",
+                f"{current_dist}%",
+                delta=f"{current_dist - raw_dist:.1f}% vs Brut" if raw_scores else None,
+                help="Mesure l'équilibre de la distribution des sessions (plus proche de 100% = plus équilibré)."
             )
 
             st.markdown("### 🔍 Gains par Dimension")
@@ -455,15 +481,96 @@ def main():
 
                     # Colored points for stage
                     points = base.mark_circle(size=100).encode(
-                        color=alt.Color('stage', legend=alt.Legend(title="Étape"), scale=alt.Scale(domain=['raw', 'cleaned'], range=['#e74c3c', '#2ecc71']))
+                        color=alt.Color(
+                            'stage',
+                            legend=alt.Legend(title="Étape"),
+                            scale=alt.Scale(domain=['raw', 'cleaned'], range=['#e74c3c', '#2ecc71'])
+                        )
                     )
 
-                    st.altair_chart(line + points, use_container_width=True)  # CHANGED
+                    st.altair_chart(line + points, use_container_width=True)
 
-                    with st.expander("Voir les données brutes de l'historique"):
-                        st.dataframe(hist.sort_values("timestamp", ascending=False), use_container_width=True)  # CHANGED
+                    # REMOVED: Voir les données brutes de l'historique expander
                 else:
                     st.info("Aucune donnée historique disponible.")
+            else:
+                st.info("Lancez 'Enregistrer métriques' pour commencer à suivre l'historique.")
+
+            # 3. Historical chart (Bars: Raw vs Cleaned per metric)
+            st.markdown("### 📊 Comparaison DQ (Brut vs Nettoyé) — Barres")
+
+            if os.path.exists(METRICS_HISTORY):
+                hist = pd.read_csv(METRICS_HISTORY, parse_dates=["timestamp"])
+
+                if hist.empty:
+                    st.info("Aucune donnée historique disponible.")
+                else:
+                    metric_cols = [
+                        "Complétude", "Unicité", "Cohérence", "Validité",
+                        "Exactitude", "Distribution", "global_score"
+                    ]
+                    metric_cols = [c for c in metric_cols if c in hist.columns]
+
+                    # Take latest RAW and latest CLEANED (if present)
+                    raw_latest = hist[hist["stage"] == "raw"].sort_values("timestamp").tail(1)
+                    cleaned_latest = hist[hist["stage"] == "cleaned"].sort_values("timestamp").tail(1)
+
+                    if raw_latest.empty or cleaned_latest.empty:
+                        st.warning("Il faut au moins une ligne 'raw' ET une ligne 'cleaned' dans l'historique.")
+                        st.caption("Utilise les boutons: 'Enregistrer Métriques BRUTES' puis 'Enregistrer Métriques NETTOYÉES'.")
+                    else:
+                        comp = pd.concat([raw_latest, cleaned_latest], ignore_index=True)
+
+                        # Build long format: metric / value / stage
+                        long_df = comp.melt(
+                            id_vars=["timestamp", "stage"],
+                            value_vars=metric_cols,
+                            var_name="metric",
+                            value_name="score"
+                        )
+
+                        # Friendly ordering (put global_score last)
+                        order = [m for m in metric_cols if m != "global_score"] + (["global_score"] if "global_score" in metric_cols else [])
+                        long_df["metric"] = pd.Categorical(long_df["metric"], categories=order, ordered=True)
+
+                        chart = (
+                            alt.Chart(long_df)
+                            .mark_bar()
+                            .encode(
+                                x=alt.X("metric:N", title="Métrique", sort=order),
+                                y=alt.Y("score:Q", title="Score (%)", scale=alt.Scale(domain=[0, 100])),
+                                xOffset="stage:N",
+                                color=alt.Color(
+                                    "stage:N",
+                                    title="Étape",
+                                    scale=alt.Scale(domain=["raw", "cleaned"], range=["#e74c3c", "#2ecc71"])
+                                ),
+                                tooltip=[
+                                    alt.Tooltip("stage:N", title="Étape"),
+                                    alt.Tooltip("metric:N", title="Métrique"),
+                                    alt.Tooltip("score:Q", title="Score", format=".2f"),
+                                    alt.Tooltip("timestamp:T", title="Timestamp"),
+                                ],
+                            )
+                            .properties(height=350)
+                        )
+
+                        # Add value label on each bar
+                        labels = (
+                            alt.Chart(long_df)
+                            .mark_text(dy=-8, fontSize=12, color="#E6E6E6")
+                            .encode(
+                                x=alt.X("metric:N", sort=order),
+                                y=alt.Y("score:Q"),
+                                xOffset="stage:N",
+                                text=alt.Text("score:Q", format=".1f")
+                            )
+                        )
+
+                        st.altair_chart(chart + labels, use_container_width=True)
+
+                        # REMOVED: Voir les données brutes de l'historique expander
+
             else:
                 st.info("Lancez 'Enregistrer métriques' pour commencer à suivre l'historique.")
 
@@ -543,8 +650,9 @@ def main():
             # 3. Global Correlations
             st.markdown("---")
             st.subheader("3. Corrélations (Heatmap Manquants)")
-            with st.expander("Afficher la heatmap"):
-                plot_heatmap_missing(df)
+
+            # CHANGED: always show heatmap (no expander)
+            plot_heatmap_missing(df)
 
     with tab_actions:
         st.header("⚙️ Contrôle du Pipeline")
