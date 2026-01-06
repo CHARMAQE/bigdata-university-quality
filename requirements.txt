@@ -1,0 +1,15 @@
+# Core
+streamlit>=1.40.0,<2.0
+pandas>=2.0.0,<3.0
+numpy>=1.24.0,<2.0
+
+# Visualization
+seaborn>=0.13.0
+matplotlib>=3.8.0
+altair>=5.0.0
+
+# Data formats
+pyarrow>=14.0.0
+
+# Optional: for better file watching
+watchdog>=3.0.0

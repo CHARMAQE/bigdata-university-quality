@@ -1,0 +1,75 @@
+services:
+  spark-master:
+    image: apache/spark:latest
+    container_name: spark-master_1
+    hostname: spark-master
+    # NOTE: macOS bind mounts require root; in production use proper user mapping
+    user: root
+    ports:
+      - "8080:8080"   # Spark UI
+      - "7077:7077"   # Spark master port
+      - "4040:4040"   # Spark application UI (ADD THIS)
+    environment:
+      - SPARK_DRIVER_MEMORY=2g
+      - SPARK_EXECUTOR_MEMORY=2g
+      - SPARK_MODE=master                    # ADD: explicit mode
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no  # ADD: for dev only
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4096M
+    volumes:
+      - ./src:/opt/project/src:ro            # CHANGE: read-only for code
+      - ./data/raw:/data/raw:ro              # CHANGE: read-only for source
+      - ./data/loaded_dataset:/data/loaded_dataset
+      - ./data/cleaned_data:/data/cleaned_data
+    healthcheck:                              # ADD: health monitoring
+      test: ["CMD", "curl", "-f", "http://localhost:8080"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    command: >
+      bash -c "
+        mkdir -p /data/loaded_dataset /data/cleaned_data &&
+        chmod -R 755 /data/loaded_dataset /data/cleaned_data 2>/dev/null || true &&
+        /opt/spark/sbin/start-master.sh &&
+        tail -f /opt/spark/logs/*
+      "
+
+  spark-worker:
+    image: apache/spark:latest
+    container_name: spark-worker-1
+    hostname: spark-worker-1
+    depends_on:
+      spark-master:
+        condition: service_healthy           # ADD: wait for master
+    ports:
+      - "8081:8081"
+    user: root
+    environment:
+      - SPARK_DRIVER_MEMORY=2g
+      - SPARK_EXECUTOR_MEMORY=2g
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_WORKER_CORES=2                 # ADD: explicit core allocation
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4096M
+    volumes:
+      - ./src:/opt/project/src:ro
+      - ./data/raw:/data/raw:ro
+      - ./data/loaded_dataset:/data/loaded_dataset
+      - ./data/cleaned_data:/data/cleaned_data
+    command: >
+      bash -c "
+        /opt/spark/sbin/start-worker.sh spark://spark-master:7077 &&
+        tail -f /opt/spark/logs/*
+      "
+
+# ADD: Network for better isolation
+networks:
+  default:
+    name: spark-network
